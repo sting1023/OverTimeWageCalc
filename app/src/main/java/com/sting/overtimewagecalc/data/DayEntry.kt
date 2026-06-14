@@ -9,7 +9,7 @@ import java.time.LocalDate
  *
  * - dailyRate = 0:用 settings.defaultDailyRate
  * - hourlyRate = 0:用 settings.defaultHourlyRate
- * - overtimeMultiplier:倍数,默认 1.0;周末/节假日根据 settings 自动填
+ * - overtimeMultiplier:倍数,默认 1.0;周末自动填 weekendMultiplier,工作日为 1.0
  * - extraOvertime:直接金额的额外加班(老功能保留)
  * - extraNote:加班备注
  */

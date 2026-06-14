@@ -46,14 +46,10 @@ class WageViewModel : ViewModel() {
         _state.update { it.copy(selectedDate = date) }
     }
 
-    /** 新建某天的条目时,自动填默认倍数(周末/节假日) */
+    /** 新建某天的条目,自动填默认倍数(周末/工作日) */
     fun createEntryFor(date: LocalDate): DayEntry {
-        val settings = _state.value.settings
         val defaultMultiplier = Settings.defaultMultiplierFor(
-            date,
-            settings.holidayMultiplier,
-            settings.weekendMultiplier,
-            settings.holidayDates
+            date, _state.value.settings.weekendMultiplier
         )
         return DayEntry(date = date, overtimeMultiplier = defaultMultiplier)
     }
@@ -67,21 +63,14 @@ class WageViewModel : ViewModel() {
 
     fun updateSettings(newSettings: Settings) {
         _state.update { current ->
-            // 已有条目,如果倍数是默认填的(1.0/周末/节假日),根据新设置更新
+            // 已有条目,如果倍数是按默认填的,跟着新设置更新
             val updatedEntries = current.entries.map { entry ->
                 val oldDefault = Settings.defaultMultiplierFor(
-                    entry.date,
-                    current.settings.holidayMultiplier,
-                    current.settings.weekendMultiplier,
-                    current.settings.holidayDates
+                    entry.date, current.settings.weekendMultiplier
                 )
                 val newDefault = Settings.defaultMultiplierFor(
-                    entry.date,
-                    newSettings.holidayMultiplier,
-                    newSettings.weekendMultiplier,
-                    newSettings.holidayDates
+                    entry.date, newSettings.weekendMultiplier
                 )
-                // 如果条目的倍数等于旧默认值,跟着新设置更新
                 if (entry.overtimeMultiplier == oldDefault && oldDefault != newDefault) {
                     entry.copy(overtimeMultiplier = newDefault)
                 } else {
