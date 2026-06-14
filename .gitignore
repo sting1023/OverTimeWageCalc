@@ -22,6 +22,8 @@ captures/
 # Keystore
 *.jks
 *.keystore
+# 例外:app/debug.keystore 是 build.yml 解码生成的(不入版本控制,但运行时需要)
+!app/debug.keystore
 
 # Gradle wrapper
 !gradle/wrapper/gradle-wrapper.jar
