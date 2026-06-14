@@ -8,7 +8,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -33,11 +32,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sting.overtimewagecalc.data.DayEntry
 import com.sting.overtimewagecalc.data.Settings
 import com.sting.overtimewagecalc.data.WageCalculator
-import com.sting.overtimewagecalc.data.WageMode
 import java.time.LocalDate
 import java.time.YearMonth
-import java.time.format.TextStyle
-import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,7 +46,9 @@ class MainActivity : ComponentActivity() {
                     onPrimary = Color.White,
                     primaryContainer = Color(0xFFBBDEFB),
                     onPrimaryContainer = Color(0xFF0D47A1),
-                    secondary = Color(0xFF388E3C),
+                    secondary = Color(0xFFE65100),
+                    error = Color(0xFFD32F2F),
+                    errorContainer = Color(0xFFFFCDD2),
                     background = Color(0xFFF5F5F5),
                     surface = Color.White
                 )
@@ -61,7 +59,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** 整个应用的根 Composable(在 SettingsScreen 和 HomeScreen 之间切换) */
+/** 应用根 */
 @Composable
 fun AppRoot() {
     val viewModel: WageViewModel = viewModel()
@@ -80,6 +78,7 @@ fun AppRoot() {
             onPrevMonth = viewModel::prevMonth,
             onNextMonth = viewModel::nextMonth,
             onSelectDate = viewModel::selectDate,
+            onCreateEntry = viewModel::createEntryFor,
             onUpdateEntry = viewModel::updateEntry,
             onOpenSettings = { showSettings = true }
         )
@@ -94,6 +93,7 @@ fun HomeScreen(
     onPrevMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onSelectDate: (LocalDate) -> Unit,
+    onCreateEntry: (LocalDate) -> DayEntry,
     onUpdateEntry: (DayEntry) -> Unit,
     onOpenSettings: () -> Unit
 ) {
@@ -102,14 +102,30 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("加班工资计算器") },
                 navigationIcon = {
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "设置")
+                    // 左侧:设置(带"设置"文字)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable(onClick = onOpenSettings)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "设置",
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "设置",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
         }
@@ -122,7 +138,7 @@ fun HomeScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            // 本月工资总额(大字)
+            // 本月工资总额
             TotalWageCard(total = state.monthTotal)
 
             Spacer(Modifier.height(16.dp))
@@ -132,6 +148,7 @@ fun HomeScreen(
                 yearMonth = state.yearMonth,
                 selectedDate = state.selectedDate,
                 entryByDate = state.entryByDate,
+                holidayDates = state.settings.holidayDates,
                 onPrevMonth = onPrevMonth,
                 onNextMonth = onNextMonth,
                 onSelectDate = onSelectDate
@@ -139,9 +156,9 @@ fun HomeScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            // 选中日期的输入区
+            // 选中日期的输入区(无模式切换 — 一页搞定)
             state.selectedDate?.let { date ->
-                val entry = state.entryByDate[date] ?: DayEntry(date = date)
+                val entry = state.entryByDate[date] ?: onCreateEntry(date)
                 DayEntryEditor(
                     entry = entry,
                     settings = state.settings,
@@ -151,7 +168,7 @@ fun HomeScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            // 本月所有明细
+            // 本月明细
             MonthDetailsSection(
                 entries = state.monthEntries,
                 settings = state.settings
@@ -194,6 +211,7 @@ fun CalendarSection(
     yearMonth: YearMonth,
     selectedDate: LocalDate?,
     entryByDate: Map<LocalDate, DayEntry>,
+    holidayDates: Set<String>,
     onPrevMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onSelectDate: (LocalDate) -> Unit
@@ -203,7 +221,7 @@ fun CalendarSection(
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // 月份切换行
+            // 月份切换
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -222,6 +240,18 @@ fun CalendarSection(
                 }
             }
 
+            // 图例
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                LegendDot(color = Color(0xFFFFF3E0), label = "周末")
+                LegendDot(color = Color(0xFFFFCDD2), label = "节假日")
+                LegendDot(color = Color(0xFFBBDEFB), label = "有数据")
+            }
+
             Spacer(Modifier.height(8.dp))
 
             // 星期表头
@@ -238,13 +268,12 @@ fun CalendarSection(
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
 
             // 日历网格
             val firstDay = yearMonth.atDay(1)
             val firstDayOfWeek = firstDay.dayOfWeek.value % 7  // 周日=0
             val daysInMonth = yearMonth.lengthOfMonth()
-
             val totalCells = firstDayOfWeek + daysInMonth
             val rows = (totalCells + 6) / 7
 
@@ -268,8 +297,10 @@ fun CalendarSection(
 
                                 CalendarDayCell(
                                     day = dayNum,
+                                    date = date,
                                     isSelected = isSelected,
                                     hasEntry = hasEntry,
+                                    holidayDates = holidayDates,
                                     onClick = { onSelectDate(date) }
                                 )
                             }
@@ -282,14 +313,41 @@ fun CalendarSection(
 }
 
 @Composable
-fun CalendarDayCell(day: Int, isSelected: Boolean, hasEntry: Boolean, onClick: () -> Unit) {
+fun LegendDot(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .clip(RoundedCornerShape(50))
+                .background(color)
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+    }
+}
+
+@Composable
+fun CalendarDayCell(
+    day: Int,
+    date: LocalDate,
+    isSelected: Boolean,
+    hasEntry: Boolean,
+    holidayDates: Set<String>,
+    onClick: () -> Unit
+) {
+    val isHoliday = holidayDates.contains(date.toString())
+    val isWeekend = date.dayOfWeek.value == 6 || date.dayOfWeek.value == 7
+
     val bgColor = when {
         isSelected -> MaterialTheme.colorScheme.primary
-        hasEntry -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+        isHoliday -> Color(0xFFFFCDD2)  // 节假日:浅红
+        isWeekend -> Color(0xFFFFF3E0)  // 周末:浅橙
+        hasEntry -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
         else -> Color.Transparent
     }
     val textColor = when {
         isSelected -> MaterialTheme.colorScheme.onPrimary
+        isHoliday -> Color(0xFFB71C1C)
         else -> MaterialTheme.colorScheme.onSurface
     }
 
@@ -306,7 +364,7 @@ fun CalendarDayCell(day: Int, isSelected: Boolean, hasEntry: Boolean, onClick: (
                 day.toString(),
                 color = textColor,
                 fontSize = 14.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                fontWeight = if (isSelected || isHoliday) FontWeight.Bold else FontWeight.Normal
             )
         }
     }
@@ -318,15 +376,19 @@ fun DayEntryEditor(
     settings: Settings,
     onUpdate: (DayEntry) -> Unit
 ) {
-    var mode by rememberSaveable(entry.date) { mutableStateOf(entry.mode) }
-    var hourlyRateText by rememberSaveable(entry.date) {
+    val dateLabel = Settings.dateTypeLabel(entry.date, settings.holidayDates)
+
+    var dailyText by rememberSaveable(entry.date) {
+        mutableStateOf(if (entry.dailyRate > 0) entry.dailyRate.toString() else settings.defaultDailyRate.toString())
+    }
+    var hourlyText by rememberSaveable(entry.date) {
         mutableStateOf(if (entry.hourlyRate > 0) entry.hourlyRate.toString() else settings.defaultHourlyRate.toString())
     }
-    var hoursText by rememberSaveable(entry.date) {
-        mutableStateOf(if (entry.hours > 0) entry.hours.toString() else "")
+    var multiplierText by rememberSaveable(entry.date) {
+        mutableStateOf(entry.overtimeMultiplier.toString())
     }
-    var dailyRateText by rememberSaveable(entry.date) {
-        mutableStateOf(if (entry.dailyRate > 0) entry.dailyRate.toString() else settings.defaultDailyRate.toString())
+    var hoursText by rememberSaveable(entry.date) {
+        mutableStateOf(if (entry.overtimeHours > 0) entry.overtimeHours.toString() else "")
     }
     var extraText by rememberSaveable(entry.date) {
         mutableStateOf(if (entry.extraOvertime > 0) entry.extraOvertime.toString() else "")
@@ -337,10 +399,10 @@ fun DayEntryEditor(
 
     fun commit() {
         val updated = entry.copy(
-            mode = mode,
-            hourlyRate = hourlyRateText.toDoubleOrNull() ?: 0.0,
-            hours = hoursText.toDoubleOrNull() ?: 0.0,
-            dailyRate = dailyRateText.toDoubleOrNull() ?: 0.0,
+            dailyRate = dailyText.toDoubleOrNull() ?: 0.0,
+            hourlyRate = hourlyText.toDoubleOrNull() ?: 0.0,
+            overtimeMultiplier = multiplierText.toDoubleOrNull() ?: 1.0,
+            overtimeHours = hoursText.toDoubleOrNull() ?: 0.0,
             extraOvertime = extraText.toDoubleOrNull() ?: 0.0,
             extraNote = noteText
         )
@@ -352,60 +414,34 @@ fun DayEntryEditor(
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                "${entry.date} 的工资",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Spacer(Modifier.height(12.dp))
-
-            // 模式切换
-            SegmentedButton(
-                mode = mode,
-                onModeChange = {
-                    mode = it
-                    commit()
-                }
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            // 输入区
-            when (mode) {
-                WageMode.HOURLY -> {
-                    NumberField(
-                        label = "时薪(¥/小时)",
-                        value = hourlyRateText,
-                        onValueChange = {
-                            hourlyRateText = it
-                            commit()
-                        }
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    NumberField(
-                        label = "工作小时数",
-                        value = hoursText,
-                        onValueChange = {
-                            hoursText = it
-                            commit()
-                        }
-                    )
-                }
-                WageMode.DAILY -> {
-                    NumberField(
-                        label = "日薪(¥/天)",
-                        value = dailyRateText,
-                        onValueChange = {
-                            dailyRateText = it
-                            commit()
-                        }
-                    )
-                    Text(
-                        "本月其他天默认日薪: ¥ ${"%.2f".format(settings.defaultDailyRate)}",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+            // 日期标题 + 类型 badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    entry.date.toString(),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                if (dateLabel.isNotEmpty()) {
+                    val badgeColor = when (dateLabel) {
+                        "节假日" -> MaterialTheme.colorScheme.errorContainer
+                        else -> Color(0xFFFFF3E0)
+                    }
+                    val badgeTextColor = when (dateLabel) {
+                        "节假日" -> Color(0xFFB71C1C)
+                        else -> Color(0xFFE65100)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(badgeColor)
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(dateLabel, fontSize = 12.sp, color = badgeTextColor)
+                    }
                 }
             }
 
@@ -413,9 +449,76 @@ fun DayEntryEditor(
             Divider()
             Spacer(Modifier.height(12.dp))
 
-            // 额外加班
+            // 1. 日薪
             NumberField(
-                label = "额外加班(¥)",
+                label = "日薪(¥/天)",
+                value = dailyText,
+                onValueChange = {
+                    dailyText = it
+                    commit()
+                }
+            )
+            Text(
+                "默认日薪: ¥ ${"%.2f".format(settings.defaultDailyRate)}",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+            )
+
+            // 2. 加班时薪
+            NumberField(
+                label = "加班时薪(¥/小时)",
+                value = hourlyText,
+                onValueChange = {
+                    hourlyText = it
+                    commit()
+                }
+            )
+            Text(
+                "默认加班时薪: ¥ ${"%.2f".format(settings.defaultHourlyRate)}",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+            )
+
+            // 3. 倍数 + 小时(并排)
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Box(modifier = Modifier.weight(1f)) {
+                    NumberField(
+                        label = "加班倍数",
+                        value = multiplierText,
+                        onValueChange = {
+                            multiplierText = it
+                            commit()
+                        }
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Box(modifier = Modifier.weight(1f)) {
+                    NumberField(
+                        label = "加班小时数",
+                        value = hoursText,
+                        onValueChange = {
+                            hoursText = it
+                            commit()
+                        }
+                    )
+                }
+            }
+            Text(
+                "周末 ${settings.weekendMultiplier} 倍 / 节假日 ${settings.holidayMultiplier} 倍(可在设置改)",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+            )
+
+            Spacer(Modifier.height(4.dp))
+            Divider()
+            Spacer(Modifier.height(8.dp))
+
+            // 4. 额外加班(金额)
+            NumberField(
+                label = "额外加班(¥,可选)",
                 value = extraText,
                 onValueChange = {
                     extraText = it
@@ -423,6 +526,8 @@ fun DayEntryEditor(
                 }
             )
             Spacer(Modifier.height(8.dp))
+
+            // 5. 备注
             OutlinedTextField(
                 value = noteText,
                 onValueChange = {
@@ -433,22 +538,30 @@ fun DayEntryEditor(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
-        }
-    }
-}
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SegmentedButton(mode: WageMode, onModeChange: (WageMode) -> Unit) {
-    val options = listOf("时薪" to WageMode.HOURLY, "日薪" to WageMode.DAILY)
-    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-        options.forEachIndexed { index, (label, value) ->
-            SegmentedButton(
-                selected = mode == value,
-                onClick = { onModeChange(value) },
-                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size)
+            Spacer(Modifier.height(12.dp))
+
+            // 当天小计
+            val preview = entry.totalWage(settings).let {
+                val liveDaily = dailyText.toDoubleOrNull() ?: 0.0
+                val liveHourly = hourlyText.toDoubleOrNull() ?: 0.0
+                val liveMult = multiplierText.toDoubleOrNull() ?: 1.0
+                val liveHours = hoursText.toDoubleOrNull() ?: 0.0
+                val liveExtra = extraText.toDoubleOrNull() ?: 0.0
+                val d = if (liveDaily > 0) liveDaily else settings.defaultDailyRate
+                val h = if (liveHourly > 0) liveHourly else settings.defaultHourlyRate
+                d + h * liveMult * liveHours + liveExtra
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(label)
+                Text("当天工资小计", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                Text(
+                    "¥ %.2f".format(preview),
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }
@@ -511,6 +624,7 @@ fun MonthDetailsSection(entries: List<DayEntry>, settings: Settings) {
 
 @Composable
 fun DetailRow(entry: DayEntry, settings: Settings) {
+    val dateLabel = Settings.dateTypeLabel(entry.date, settings.holidayDates)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -519,23 +633,37 @@ fun DetailRow(entry: DayEntry, settings: Settings) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    entry.date.toString(),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                if (dateLabel.isNotEmpty()) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "·$dateLabel",
+                        fontSize = 11.sp,
+                        color = if (dateLabel == "节假日") Color(0xFFB71C1C) else Color(0xFFE65100)
+                    )
+                }
+            }
+            val detail = buildString {
+                val daily = if (entry.dailyRate > 0) entry.dailyRate else settings.defaultDailyRate
+                append("日薪 ¥${"%.2f".format(daily)}")
+                if (entry.overtimeHours > 0) {
+                    val hourly = if (entry.hourlyRate > 0) entry.hourlyRate else settings.defaultHourlyRate
+                    append(" + 加班 ¥${"%.2f".format(hourly)} × ${entry.overtimeMultiplier} × ${entry.overtimeHours}h")
+                }
+            }
             Text(
-                entry.date.toString(),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
-            )
-            val modeLabel = if (entry.mode == WageMode.HOURLY)
-                "时薪 ¥${"%.2f".format(entry.hourlyRate)} × ${entry.hours} 小时"
-            else
-                "日薪 ¥${"%.2f".format(entry.dailyRate)}"
-            Text(
-                modeLabel,
+                detail,
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
             )
             if (entry.extraOvertime > 0 || entry.extraNote.isNotBlank()) {
                 Text(
-                    "加班 +¥${"%.2f".format(entry.extraOvertime)}${if (entry.extraNote.isNotBlank()) " · ${entry.extraNote}" else ""}",
+                    "额外 +¥${"%.2f".format(entry.extraOvertime)}${if (entry.extraNote.isNotBlank()) " · ${entry.extraNote}" else ""}",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.secondary
                 )
@@ -558,30 +686,54 @@ fun SettingsScreen(
     onSettingsChange: (Settings) -> Unit,
     onBack: () -> Unit
 ) {
-    var hourlyText by rememberSaveable { mutableStateOf(settings.defaultHourlyRate.toString()) }
     var dailyText by rememberSaveable { mutableStateOf(settings.defaultDailyRate.toString()) }
+    var hourlyText by rememberSaveable { mutableStateOf(settings.defaultHourlyRate.toString()) }
+    var weekendText by rememberSaveable { mutableStateOf(settings.weekendMultiplier.toString()) }
+    var holidayText by rememberSaveable { mutableStateOf(settings.holidayMultiplier.toString()) }
+    var newHoliday by rememberSaveable { mutableStateOf("") }
+
+    fun save() {
+        onSettingsChange(
+            settings.copy(
+                defaultDailyRate = dailyText.toDoubleOrNull() ?: settings.defaultDailyRate,
+                defaultHourlyRate = hourlyText.toDoubleOrNull() ?: settings.defaultHourlyRate,
+                weekendMultiplier = weekendText.toDoubleOrNull() ?: settings.weekendMultiplier,
+                holidayMultiplier = holidayText.toDoubleOrNull() ?: settings.holidayMultiplier
+            )
+        )
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("设置") },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        onSettingsChange(
-                            Settings(
-                                defaultHourlyRate = hourlyText.toDoubleOrNull() ?: settings.defaultHourlyRate,
-                                defaultDailyRate = dailyText.toDoubleOrNull() ?: settings.defaultDailyRate
-                            )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable(onClick = {
+                                save()
+                                onBack()
+                            })
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "返回",
+                            tint = MaterialTheme.colorScheme.onPrimary
                         )
-                        onBack()
-                    }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "返回",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
         }
@@ -590,48 +742,131 @@ fun SettingsScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
             Text(
-                "默认值设置",
-                fontSize = 18.sp,
+                "默认值(空着填时用)",
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Medium
             )
-            Text(
-                "如果没有特殊情况,这些值会自动填到时薪/日薪模式里。",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
-            )
+            Spacer(Modifier.height(8.dp))
 
-            NumberField(
-                label = "默认时薪(¥/小时)",
-                value = hourlyText,
-                onValueChange = { hourlyText = it }
-            )
-            Spacer(Modifier.height(12.dp))
             NumberField(
                 label = "默认日薪(¥/天)",
                 value = dailyText,
                 onValueChange = { dailyText = it }
             )
+            Spacer(Modifier.height(8.dp))
+            NumberField(
+                label = "默认加班时薪(¥/小时)",
+                value = hourlyText,
+                onValueChange = { hourlyText = it }
+            )
+
+            Spacer(Modifier.height(20.dp))
+            Text(
+                "加班倍数",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                "周末和节假日自动填对应倍数,用户在每天输入页也能改",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+            )
+
+            NumberField(
+                label = "周末倍数",
+                value = weekendText,
+                onValueChange = { weekendText = it }
+            )
+            Spacer(Modifier.height(8.dp))
+            NumberField(
+                label = "节假日倍数",
+                value = holidayText,
+                onValueChange = { holidayText = it }
+            )
+
+            Spacer(Modifier.height(20.dp))
+            Text(
+                "节假日日期(YYYY-MM-DD 格式,如 2026-10-01)",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                "下方列表显示,日历上节假日会用红色标出",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+            )
+
+            // 添加节假日
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = newHoliday,
+                    onValueChange = { newHoliday = it },
+                    label = { Text("新节假日") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+                Spacer(Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        val date = newHoliday.trim()
+                        if (date.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) {
+                            onSettingsChange(settings.copy(holidayDates = settings.holidayDates + date))
+                            newHoliday = ""
+                        }
+                    }
+                ) {
+                    Text("添加")
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            // 节假日列表
+            if (settings.holidayDates.isEmpty()) {
+                Text(
+                    "暂无节假日。在上方输入日期后点添加。",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            } else {
+                settings.holidayDates.sorted().forEach { date ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(date, fontSize = 14.sp)
+                        TextButton(
+                            onClick = {
+                                onSettingsChange(settings.copy(holidayDates = settings.holidayDates - date))
+                            }
+                        ) {
+                            Text("删除", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
 
             Spacer(Modifier.height(24.dp))
 
             Button(
                 onClick = {
-                    onSettingsChange(
-                        Settings(
-                            defaultHourlyRate = hourlyText.toDoubleOrNull() ?: settings.defaultHourlyRate,
-                            defaultDailyRate = dailyText.toDoubleOrNull() ?: settings.defaultDailyRate
-                        )
-                    )
+                    save()
                     onBack()
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("保存")
+                Text("保存设置")
             }
+
+            Spacer(Modifier.height(40.dp))
         }
     }
 }

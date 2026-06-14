@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import com.sting.overtimewagecalc.data.DayEntry
 import com.sting.overtimewagecalc.data.Settings
 import com.sting.overtimewagecalc.data.WageCalculator
-import com.sting.overtimewagecalc.data.WageMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,7 +28,7 @@ data class WageUiState(
         get() = WageCalculator.totalForMonth(monthEntries, settings)
 }
 
-/** ViewModel:管理状态 + 处理用户操作 */
+/** ViewModel */
 class WageViewModel : ViewModel() {
 
     private val _state = MutableStateFlow(WageUiState())
@@ -47,6 +46,18 @@ class WageViewModel : ViewModel() {
         _state.update { it.copy(selectedDate = date) }
     }
 
+    /** 新建某天的条目时,自动填默认倍数(周末/节假日) */
+    fun createEntryFor(date: LocalDate): DayEntry {
+        val settings = _state.value.settings
+        val defaultMultiplier = Settings.defaultMultiplierFor(
+            date,
+            settings.holidayMultiplier,
+            settings.weekendMultiplier,
+            settings.holidayDates
+        )
+        return DayEntry(date = date, overtimeMultiplier = defaultMultiplier)
+    }
+
     fun updateEntry(updated: DayEntry) {
         _state.update { current ->
             val newEntries = current.entries.filter { it.date != updated.date } + updated
@@ -55,6 +66,29 @@ class WageViewModel : ViewModel() {
     }
 
     fun updateSettings(newSettings: Settings) {
-        _state.update { it.copy(settings = newSettings) }
+        _state.update { current ->
+            // 已有条目,如果倍数是默认填的(1.0/周末/节假日),根据新设置更新
+            val updatedEntries = current.entries.map { entry ->
+                val oldDefault = Settings.defaultMultiplierFor(
+                    entry.date,
+                    current.settings.holidayMultiplier,
+                    current.settings.weekendMultiplier,
+                    current.settings.holidayDates
+                )
+                val newDefault = Settings.defaultMultiplierFor(
+                    entry.date,
+                    newSettings.holidayMultiplier,
+                    newSettings.weekendMultiplier,
+                    newSettings.holidayDates
+                )
+                // 如果条目的倍数等于旧默认值,跟着新设置更新
+                if (entry.overtimeMultiplier == oldDefault && oldDefault != newDefault) {
+                    entry.copy(overtimeMultiplier = newDefault)
+                } else {
+                    entry
+                }
+            }
+            current.copy(settings = newSettings, entries = updatedEntries)
+        }
     }
 }
