@@ -23,16 +23,23 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      # 关键:用固定 keystore 替换 GitHub Actions 默认的 debug.keystore
-      # 默认 keystore 每次 build 随机生成,导致升级时签名不匹配
-      # 固定 keystore SHA-1: 57:FE:A8:FC:8B:FA:38:98:9A:D7:8C:77:4C:C6:D8:CD:64:F5:C9:70
+      # 关键:把固定 keystore 解码到 app/debug.keystore
+      # build.gradle.kts 的 signingConfig 直接读这个,绕开 AGP 8+ build cache
       - name: Setup fixed debug keystore
         run: |
-          mkdir -p ~/.android
-          base64 -d .github/keystore.b64 > ~/.android/debug.keystore
-          chmod 600 ~/.android/debug.keystore
-          echo "✓ Fixed keystore installed"
-          echo "SHA-1: $(keytool -list -v -keystore ~/.android/debug.keystore -storepass android 2>/dev/null | grep 'SHA1:' | head -1)"
+          mkdir -p app
+          base64 -d .github/keystore.b64 > app/debug.keystore
+          chmod 600 app/debug.keystore
+          echo "✓ Fixed keystore installed at app/debug.keystore"
+          EXPECTED_SHA1="57:FE:A8:FC:8B:FA:38:98:9A:D7:8C:77:4C:C6:D8:CD:64:F5:C9:70"
+          ACTUAL_SHA1=$(keytool -list -v -keystore app/debug.keystore -storepass android 2>/dev/null | grep 'SHA1:' | head -1 | awk '{print $2}')
+          echo "Expected SHA-1: $EXPECTED_SHA1"
+          echo "Actual SHA-1:   $ACTUAL_SHA1"
+          if [ "$ACTUAL_SHA1" != "$EXPECTED_SHA1" ]; then
+            echo "✗ Keystore SHA-1 mismatch! Build aborted."
+            exit 1
+          fi
+          echo "✓ SHA-1 verified"
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew || true
