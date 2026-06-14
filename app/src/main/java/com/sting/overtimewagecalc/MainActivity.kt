@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -82,7 +83,7 @@ fun AppRoot() {
     }
 }
 
-/** 主屏幕 */
+/** 主屏幕(v1.4:工资总额嵌进标题 + 日历固定 + 内容可滑动) */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -97,7 +98,21 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("加班工资计算器") },
+                title = {
+                    // 工资计算器,本月工资 ¥xxxx.xx
+                    Column {
+                        Text(
+                            "工资计算器",
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Text(
+                            "本月工资 ¥ %.2f".format(state.monthTotal),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
+                        )
+                    }
+                },
                 navigationIcon = {
                     // 左侧:设置(带"设置"文字)
                     Row(
@@ -132,15 +147,8 @@ fun HomeScreen(
                 .padding(padding)
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
         ) {
-            // 本月工资总额
-            TotalWageCard(total = state.monthTotal)
-
-            Spacer(Modifier.height(16.dp))
-
-            // 日历
+            // 日历(固定,不滚动)
             CalendarSection(
                 yearMonth = state.yearMonth,
                 selectedDate = state.selectedDate,
@@ -150,54 +158,34 @@ fun HomeScreen(
                 onSelectDate = onSelectDate
             )
 
-            Spacer(Modifier.height(16.dp))
+            // 下面内容:编辑器 + 本月明细,可滑动
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(vertical = 12.dp)
+            ) {
+                // 选中日期的输入区
+                state.selectedDate?.let { date ->
+                    val entry = state.entryByDate[date] ?: onCreateEntry(date)
+                    item(key = "editor_${date}") {
+                        DayEntryEditor(
+                            entry = entry,
+                            settings = state.settings,
+                            onUpdate = onUpdateEntry
+                        )
+                    }
+                }
 
-            // 选中日期的输入区
-            state.selectedDate?.let { date ->
-                val entry = state.entryByDate[date] ?: onCreateEntry(date)
-                DayEntryEditor(
-                    entry = entry,
-                    settings = state.settings,
-                    onUpdate = onUpdateEntry
-                )
+                // 本月明细
+                item(key = "details") {
+                    Spacer(Modifier.height(8.dp))
+                    MonthDetailsSection(
+                        entries = state.monthEntries,
+                        settings = state.settings
+                    )
+                }
             }
-
-            Spacer(Modifier.height(16.dp))
-
-            // 本月明细
-            MonthDetailsSection(
-                entries = state.monthEntries,
-                settings = state.settings
-            )
-        }
-    }
-}
-
-@Composable
-fun TotalWageCard(total: Double) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                "本月工资总额",
-                fontSize = 16.sp,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "¥ %.2f".format(total),
-                fontSize = 36.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
         }
     }
 }
@@ -213,25 +201,25 @@ fun CalendarSection(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(12.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             // 月份切换
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onPrevMonth) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "上月")
+                IconButton(onClick = onPrevMonth, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "上月", modifier = Modifier.size(18.dp))
                 }
                 Text(
                     text = "${yearMonth.year} 年 ${yearMonth.monthValue} 月",
-                    fontSize = 18.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Medium
                 )
-                IconButton(onClick = onNextMonth) {
-                    Icon(Icons.Default.ArrowForward, contentDescription = "下月")
+                IconButton(onClick = onNextMonth, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.ArrowForward, contentDescription = "下月", modifier = Modifier.size(18.dp))
                 }
             }
 
@@ -239,14 +227,14 @@ fun CalendarSection(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                LegendDot(color = Color(0xFFE3F2FD), label = "周末")
-                LegendDot(color = Color(0xFF4A148C), label = "有数据", isDot = true)
+                LegendDot(color = Color(0xFFE3F2FD), label = "周末", size = 9.dp)
+                LegendDot(color = Color(0xFF4A148C), label = "有数据", isDot = true, size = 5.dp)
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
 
             // 星期表头
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -255,14 +243,14 @@ fun CalendarSection(
                         day,
                         modifier = Modifier.weight(1f),
                         textAlign = TextAlign.Center,
-                        fontSize = 12.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                 }
             }
 
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(2.dp))
 
             // 日历网格
             val firstDay = yearMonth.atDay(1)
@@ -281,7 +269,7 @@ fun CalendarSection(
                             modifier = Modifier
                                 .weight(1f)
                                 .aspectRatio(1f)
-                                .padding(2.dp),
+                                .padding(1.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             if (dayNum in 1..daysInMonth) {
@@ -306,25 +294,16 @@ fun CalendarSection(
 }
 
 @Composable
-fun LegendDot(color: Color, label: String, isDot: Boolean = false) {
+fun LegendDot(color: Color, label: String, isDot: Boolean = false, size: androidx.compose.ui.unit.Dp = 12.dp) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        if (isDot) {
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(color)
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(12.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(color)
-            )
-        }
+        Box(
+            modifier = Modifier
+                .size(size)
+                .clip(RoundedCornerShape(50))
+                .background(color)
+        )
         Spacer(Modifier.width(4.dp))
-        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+        Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
     }
 }
 
@@ -364,15 +343,15 @@ fun CalendarDayCell(
                 Text(
                     day.toString(),
                     color = textColor,
-                    fontSize = 14.sp,
+                    fontSize = 12.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                 )
                 // 有数据:在日期下面加深紫色小点
                 if (hasEntry) {
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(1.dp))
                     Box(
                         modifier = Modifier
-                            .size(4.dp)
+                            .size(3.dp)
                             .clip(RoundedCornerShape(50))
                             .background(
                                 if (isSelected) MaterialTheme.colorScheme.onPrimary
