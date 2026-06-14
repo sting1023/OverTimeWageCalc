@@ -393,7 +393,10 @@ fun DayEntryEditor(
 ) {
     val dateLabel = Settings.dateTypeLabel(entry.date)
 
-    // v1.2:输入框默认空,placeholder 显示当前默认值
+    // v1.3:日薪启用开关(默认关闭)
+    var dailyEnabled by rememberSaveable(entry.date) {
+        mutableStateOf(entry.dailyWageEnabled)
+    }
     var dailyText by rememberSaveable(entry.date) {
         mutableStateOf(if (entry.dailyRate > 0) entry.dailyRate.toString() else "")
     }
@@ -415,6 +418,7 @@ fun DayEntryEditor(
 
     fun commit() {
         val updated = entry.copy(
+            dailyWageEnabled = dailyEnabled,
             dailyRate = dailyText.toDoubleOrNull() ?: 0.0,
             hourlyRate = hourlyText.toDoubleOrNull() ?: 0.0,
             overtimeMultiplier = multiplierText.toDoubleOrNull() ?: 1.0,
@@ -457,22 +461,52 @@ fun DayEntryEditor(
             Divider()
             Spacer(Modifier.height(12.dp))
 
-            // 1. 日薪(留空用默认)
-            NumberField(
-                label = "日薪(¥/天)",
-                value = dailyText,
-                placeholder = "默认 ¥ ${"%.2f".format(settings.defaultDailyRate)}",
-                onValueChange = {
-                    dailyText = it
-                    commit()
-                }
-            )
-            Text(
-                "留空 = 用默认日薪 ¥ ${"%.2f".format(settings.defaultDailyRate)}",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
-            )
+            // 1. 日薪(checkbox 启用才显示输入框)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = dailyEnabled,
+                    onCheckedChange = {
+                        dailyEnabled = it
+                        commit()
+                    }
+                )
+                Text(
+                    "启用日薪",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.clickable {
+                        dailyEnabled = !dailyEnabled
+                        commit()
+                    }
+                )
+            }
+            if (dailyEnabled) {
+                NumberField(
+                    label = "日薪(¥/天)",
+                    value = dailyText,
+                    placeholder = "默认 ¥ ${"%.2f".format(settings.defaultDailyRate)}",
+                    onValueChange = {
+                        dailyText = it
+                        commit()
+                    }
+                )
+                Text(
+                    "留空 = 用默认日薪 ¥ ${"%.2f".format(settings.defaultDailyRate)}",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+                )
+            } else {
+                Text(
+                    "未启用日薪(今天只有加班 / 额外加班工资)",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(start = 16.dp, top = 2.dp, bottom = 8.dp)
+                )
+            }
 
             // 2. 加班时薪(留空用默认)
             NumberField(
@@ -552,12 +586,16 @@ fun DayEntryEditor(
             Spacer(Modifier.height(12.dp))
 
             // 当天小计(实时)
-            val liveDaily = dailyText.toDoubleOrNull() ?: 0.0
+            val liveDaily = if (dailyEnabled) (dailyText.toDoubleOrNull() ?: 0.0) else 0.0
             val liveHourly = hourlyText.toDoubleOrNull() ?: 0.0
             val liveMult = multiplierText.toDoubleOrNull() ?: 1.0
             val liveHours = hoursText.toDoubleOrNull() ?: 0.0
             val liveExtra = extraText.toDoubleOrNull() ?: 0.0
-            val d = if (liveDaily > 0) liveDaily else settings.defaultDailyRate
+            val d = when {
+                !dailyEnabled -> 0.0
+                liveDaily > 0 -> liveDaily
+                else -> settings.defaultDailyRate
+            }
             val h = if (liveHourly > 0) liveHourly else settings.defaultHourlyRate
             val preview = d + h * liveMult * liveHours + liveExtra
 
@@ -666,12 +704,16 @@ fun DetailRow(entry: DayEntry, settings: Settings) {
                 }
             }
             val detail = buildString {
-                val daily = if (entry.dailyRate > 0) entry.dailyRate else settings.defaultDailyRate
-                append("日薪 ¥${"%.2f".format(daily)}")
-                if (entry.overtimeHours > 0) {
-                    val hourly = if (entry.hourlyRate > 0) entry.hourlyRate else settings.defaultHourlyRate
-                    append(" + 加班 ¥${"%.2f".format(hourly)} × ${entry.overtimeMultiplier} × ${entry.overtimeHours}h")
+                if (entry.dailyWageEnabled) {
+                    val daily = if (entry.dailyRate > 0) entry.dailyRate else settings.defaultDailyRate
+                    append("日薪 ¥${"%.2f".format(daily)}")
                 }
+                if (entry.overtimeHours > 0) {
+                    if (entry.dailyWageEnabled) append(" + ")
+                    val hourly = if (entry.hourlyRate > 0) entry.hourlyRate else settings.defaultHourlyRate
+                    append("加班 ¥${"%.2f".format(hourly)} × ${entry.overtimeMultiplier} × ${entry.overtimeHours}h")
+                }
+                if (length == 0) append("仅加班 / 额外加班")
             }
             Text(
                 detail,
