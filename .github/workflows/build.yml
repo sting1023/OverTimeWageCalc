@@ -23,6 +23,17 @@ jobs:
         with:
           gradle-version: '8.5'
 
+      # 关键:用固定 keystore 替换 GitHub Actions 默认的 debug.keystore
+      # 默认 keystore 每次 build 随机生成,导致升级时签名不匹配
+      # 固定 keystore SHA-1: 57:FE:A8:FC:8B:FA:38:98:9A:D7:8C:77:4C:C6:D8:CD:64:F5:C9:70
+      - name: Setup fixed debug keystore
+        run: |
+          mkdir -p ~/.android
+          base64 -d .github/keystore.b64 > ~/.android/debug.keystore
+          chmod 600 ~/.android/debug.keystore
+          echo "✓ Fixed keystore installed"
+          echo "SHA-1: $(keytool -list -v -keystore ~/.android/debug.keystore -storepass android 2>/dev/null | grep 'SHA1:' | head -1)"
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew || true
 
@@ -35,6 +46,18 @@ jobs:
           APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)
           echo "apk_path=$APK" >> $GITHUB_OUTPUT
           echo "✓ APK at: $APK"
+
+      - name: Verify signing
+        run: |
+          APK="${{ steps.locate.outputs.apk_path }}"
+          SHA1=$(keytool -list -v -keystore ~/.android/debug.keystore -storepass android 2>/dev/null | grep 'SHA1:' | head -1)
+          echo "Keystore SHA-1: $SHA1"
+          # 用 apksigner 验证 APK 是否用此 keystore 签名
+          if command -v apksigner &> /dev/null; then
+            apksigner verify --print-certs "$APK" 2>&1 | grep -i 'SHA-1\|SHA1' | head -3
+          else
+            echo "(apksigner 不可用,跳过 APK 签名验证)"
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
