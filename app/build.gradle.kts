@@ -16,6 +16,23 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
+    // 显式声明 debug signing config(绕开 AGP 8+ build cache 用默认 keystore 的坑)
+    // 不依赖 ~/.android/debug.keystore,直接读仓库里的固定 keystore
+    signingConfigs {
+        create("stingDebug") {
+            val keystoreFile = rootProject.file(".github/keystore.b64")
+            // 把 base64 解码后写到临时文件
+            val decoded = file("$buildDir/decoded-debug.keystore")
+            val keystoreBytes = java.util.Base64.getDecoder().decode(keystoreFile.readBytes())
+            decoded.parentFile.mkdirs()
+            decoded.writeBytes(keystoreBytes)
+            storeFile = decoded
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -26,6 +43,7 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("stingDebug")
         }
     }
 
