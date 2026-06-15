@@ -1,8 +1,10 @@
 package com.sting.overtimewagecalc
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import com.sting.overtimewagecalc.data.DayEntry
 import com.sting.overtimewagecalc.data.Settings
+import com.sting.overtimewagecalc.data.Storage
 import com.sting.overtimewagecalc.data.WageCalculator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,14 +30,32 @@ data class WageUiState(
         get() = WageCalculator.totalForMonth(monthEntries, settings)
 }
 
-/** ViewModel */
-class WageViewModel : ViewModel() {
+/** ViewModel(v1.8 — 持久化到 SharedPreferences,升级不丢数据) */
+class WageViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val context get() = getApplication<Application>()
 
     private val _state = MutableStateFlow(WageUiState())
     val state: StateFlow<WageUiState> = _state.asStateFlow()
 
+    init {
+        // 从磁盘恢复(卸载重装没数据,这里 load 返回 null 用默认)
+        Storage.load(context)?.let { loaded ->
+            _state.update {
+                it.copy(entries = loaded.entries, settings = loaded.settings)
+            }
+        }
+    }
+
+    /** 每次改 entries / settings 都写盘 */
+    private fun persist() {
+        val current = _state.value
+        Storage.save(context, current.entries, current.settings)
+    }
+
     fun prevMonth() {
         _state.update { it.copy(yearMonth = it.yearMonth.minusMonths(1)) }
+        // 月份切换是 UI 状态,不入 entries/settings,不存
     }
 
     fun nextMonth() {
@@ -59,6 +79,7 @@ class WageViewModel : ViewModel() {
             val newEntries = current.entries.filter { it.date != updated.date } + updated
             current.copy(entries = newEntries)
         }
+        persist()
     }
 
     /** 清空某天的数据(从 entries 里删掉这天的条目) */
@@ -67,6 +88,7 @@ class WageViewModel : ViewModel() {
             val newEntries = current.entries.filter { it.date != date }
             current.copy(entries = newEntries)
         }
+        persist()
     }
 
     fun updateSettings(newSettings: Settings) {
@@ -87,5 +109,6 @@ class WageViewModel : ViewModel() {
             }
             current.copy(settings = newSettings, entries = updatedEntries)
         }
+        persist()
     }
 }
