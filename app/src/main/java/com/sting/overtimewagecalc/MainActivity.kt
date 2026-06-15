@@ -83,13 +83,16 @@ fun AppRoot() {
             onCreateEntry = viewModel::createEntryFor,
             onUpdateEntry = viewModel::updateEntry,
             onClearEntry = viewModel::clearEntry,
+            onMarkDirty = viewModel::markDirty,
+            onMarkClean = viewModel::markClean,
             onOpenSettings = { showSettings = true }
         )
     }
 }
 
 /** 主屏幕(v1.4:工资总额嵌进标题 + 日历固定 + 内容可滑动)
- *  v1.6:加 onClearEntry 清空当天数据 */
+ *  v1.6:加 onClearEntry 清空当天数据
+ *  v1.8.2:加 onMarkDirty / onMarkClean 跟踪未保存的草稿 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -100,6 +103,8 @@ fun HomeScreen(
     onCreateEntry: (LocalDate) -> DayEntry,
     onUpdateEntry: (DayEntry) -> Unit,
     onClearEntry: (LocalDate) -> Unit,
+    onMarkDirty: (LocalDate) -> Unit,
+    onMarkClean: (LocalDate) -> Unit,
     onOpenSettings: () -> Unit
 ) {
     Scaffold(
@@ -165,6 +170,7 @@ fun HomeScreen(
                 yearMonth = state.yearMonth,
                 selectedDate = state.selectedDate,
                 entryByDate = state.entryByDate,
+                dirtyDates = state.dirtyDates,
                 onPrevMonth = onPrevMonth,
                 onNextMonth = onNextMonth,
                 onSelectDate = onSelectDate
@@ -185,7 +191,9 @@ fun HomeScreen(
                             entry = entry,
                             settings = state.settings,
                             onUpdate = onUpdateEntry,
-                            onClear = onClearEntry
+                            onClear = onClearEntry,
+                            onMarkDirty = onMarkDirty,
+                            onMarkClean = onMarkClean
                         )
                     }
                 }
@@ -208,6 +216,7 @@ fun CalendarSection(
     yearMonth: YearMonth,
     selectedDate: LocalDate?,
     entryByDate: Map<LocalDate, DayEntry>,
+    dirtyDates: Set<LocalDate>,  // v1.8.2:有未保存草稿的日期
     onPrevMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onSelectDate: (LocalDate) -> Unit
@@ -278,12 +287,14 @@ fun CalendarSection(
                                 val date = yearMonth.atDay(dayNum)
                                 val isSelected = date == selectedDate
                                 val hasEntry = entryByDate[date]?.isEmpty == false
+                                val isDirty = date in dirtyDates  // v1.8.2
 
                                 CalendarDayCell(
                                     day = dayNum,
                                     date = date,
                                     isSelected = isSelected,
                                     hasEntry = hasEntry,
+                                    isDirty = isDirty,
                                     onClick = { onSelectDate(date) }
                                 )
                             }
@@ -315,6 +326,7 @@ fun CalendarDayCell(
     date: LocalDate,
     isSelected: Boolean,
     hasEntry: Boolean,
+    isDirty: Boolean = false,  // v1.8.2
     onClick: () -> Unit
 ) {
     val isWeekend = date.dayOfWeek.value == 6 || date.dayOfWeek.value == 7
@@ -351,8 +363,16 @@ fun CalendarDayCell(
                     fontSize = 12.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                 )
-                // 有数据:在日期下面加深紫色小点
-                if (hasEntry) {
+                // v1.8.2:有未保存草稿,数字下面显示红字"未保存"
+                if (isDirty) {
+                    Spacer(Modifier.height(1.dp))
+                    Text(
+                        "未保存",
+                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.error,
+                        fontSize = 7.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                } else if (hasEntry) {
                     Spacer(Modifier.height(1.dp))
                     Box(
                         modifier = Modifier
@@ -370,13 +390,16 @@ fun CalendarDayCell(
 }
 
 /** 每天输入编辑器(v1.6:加 保存/清空 按钮,改用草稿模式)
- *  v1.7:额外加班/备注 加最近 3 条历史选择 */
+ *  v1.7:额外加班/备注 加最近 3 条历史选择
+ *  v1.8.2:onValueChange 调 markDirty,commit/clear 调 markClean(改坏标) */
 @Composable
 fun DayEntryEditor(
     entry: DayEntry,
     settings: Settings,
     onUpdate: (DayEntry) -> Unit,
-    onClear: (LocalDate) -> Unit
+    onClear: (LocalDate) -> Unit,
+    onMarkDirty: (LocalDate) -> Unit,
+    onMarkClean: (LocalDate) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -433,6 +456,7 @@ fun DayEntryEditor(
             extraNote = noteText
         )
         onUpdate(updated)
+        onMarkClean(entry.date)  // v1.8.2:保存后清草稿标
         // v1.7:保存到最近输入历史
         if (extraText.isNotBlank()) {
             RecentInputs.addExtraOvertime(context, extraText)
@@ -463,20 +487,20 @@ fun DayEntryEditor(
             ) {
                 Checkbox(
                     checked = dailyEnabled,
-                    onCheckedChange = { dailyEnabled = it }
+                    onCheckedChange = { dailyEnabled = it; onMarkDirty(entry.date) }
                 )
                 Text(
                     "启用日薪",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.clickable { dailyEnabled = !dailyEnabled }
+                    modifier = Modifier.clickable { dailyEnabled = !dailyEnabled; onMarkDirty(entry.date) }
                 )
             }
             if (dailyEnabled) {
                 NumberField(
                     label = "日薪(¥/天)",
                     value = dailyText,
-                    onValueChange = { dailyText = it }
+                    onValueChange = { dailyText = it; onMarkDirty(entry.date) }
                 )
             } else {
                 Text(
@@ -491,7 +515,7 @@ fun DayEntryEditor(
             NumberField(
                 label = "加班时薪(¥/小时)",
                 value = hourlyText,
-                onValueChange = { hourlyText = it }
+                onValueChange = { hourlyText = it; onMarkDirty(entry.date) }
             )
 
             // 3. 倍数 + 小时(并排)
@@ -500,7 +524,7 @@ fun DayEntryEditor(
                     NumberField(
                         label = "加班倍数",
                         value = multiplierText,
-                        onValueChange = { multiplierText = it }
+                        onValueChange = { multiplierText = it; onMarkDirty(entry.date) }
                     )
                 }
                 Spacer(Modifier.width(12.dp))
@@ -508,7 +532,7 @@ fun DayEntryEditor(
                     NumberField(
                         label = "加班小时数",
                         value = hoursText,
-                        onValueChange = { hoursText = it }
+                        onValueChange = { hoursText = it; onMarkDirty(entry.date) }
                     )
                 }
             }
@@ -528,7 +552,7 @@ fun DayEntryEditor(
                 NumberField(
                     label = "额外加班(¥,可选)",
                     value = extraText,
-                    onValueChange = { extraText = it },
+                    onValueChange = { extraText = it; onMarkDirty(entry.date) },
                     trailingIcon = if (extraHistory.isNotEmpty()) {
                         {
                             IconButton(onClick = { showExtraMenu = true }) {
@@ -571,7 +595,7 @@ fun DayEntryEditor(
             Box(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
                     value = noteText,
-                    onValueChange = { noteText = it },
+                    onValueChange = { noteText = it; onMarkDirty(entry.date) },
                     label = { Text("加班备注(可选)") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
@@ -606,7 +630,7 @@ fun DayEntryEditor(
 
             Spacer(Modifier.height(12.dp))
 
-            // 当天小计(实时,基于草稿;v1.8:脏了才显示红色"未保存")
+            // 当天小计(实时,基于草稿;v1.8.2:红字移到日历数字下面,这里不再显示"未保存")
             val liveDaily = if (dailyEnabled) (dailyText.toDoubleOrNull() ?: settings.defaultDailyRate) else 0.0
             val liveHourly = hourlyText.toDoubleOrNull() ?: settings.defaultHourlyRate
             val liveMult = multiplierText.toDoubleOrNull() ?: 1.0
@@ -614,31 +638,11 @@ fun DayEntryEditor(
             val liveExtra = extraText.toDoubleOrNull() ?: 0.0
             val preview = liveDaily + liveHourly * liveMult * liveHours + liveExtra
 
-            // 比较草稿 vs 已保存,任何一个字段不同就算脏
-            val isDirty = dailyEnabled != entry.dailyWageEnabled ||
-                liveDaily != entry.dailyRate ||
-                liveHourly != entry.hourlyRate ||
-                liveMult != entry.overtimeMultiplier ||
-                liveHours != entry.overtimeHours ||
-                liveExtra != entry.extraOvertime ||
-                noteText != entry.extraNote
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("当天工资小计", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                    if (isDirty) {
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            "(未保存)",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.error,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
+                Text("当天工资小计", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                 Text(
                     "¥ %.2f".format(preview),
                     fontWeight = FontWeight.Bold,
@@ -677,6 +681,7 @@ fun DayEntryEditor(
                 TextButton(onClick = {
                     showClearDialog = false
                     onClear(entry.date)
+                    onMarkClean(entry.date)  // v1.8.2:清空后清草稿标
                     // 触发本地状态重置为默认值
                     resetNonce++
                 }) {

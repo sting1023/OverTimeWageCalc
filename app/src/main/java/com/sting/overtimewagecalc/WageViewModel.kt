@@ -13,12 +13,13 @@ import kotlinx.coroutines.flow.update
 import java.time.LocalDate
 import java.time.YearMonth
 
-/** UI 状态 */
+/** UI 状态(v1.8.2 — 加 dirtyDates 跟踪哪些日期有未保存的草稿) */
 data class WageUiState(
     val yearMonth: YearMonth = YearMonth.now(),
     val selectedDate: LocalDate? = LocalDate.now(),
     val entries: List<DayEntry> = emptyList(),
-    val settings: Settings = Settings()
+    val settings: Settings = Settings(),
+    val dirtyDates: Set<LocalDate> = emptySet()
 ) {
     val monthEntries: List<DayEntry>
         get() = WageCalculator.entriesForMonth(entries, yearMonth)
@@ -77,7 +78,7 @@ class WageViewModel(application: Application) : AndroidViewModel(application) {
     fun updateEntry(updated: DayEntry) {
         _state.update { current ->
             val newEntries = current.entries.filter { it.date != updated.date } + updated
-            current.copy(entries = newEntries)
+            current.copy(entries = newEntries, dirtyDates = current.dirtyDates - updated.date)
         }
         persist()
     }
@@ -86,9 +87,25 @@ class WageViewModel(application: Application) : AndroidViewModel(application) {
     fun clearEntry(date: LocalDate) {
         _state.update { current ->
             val newEntries = current.entries.filter { it.date != date }
-            current.copy(entries = newEntries)
+            current.copy(entries = newEntries, dirtyDates = current.dirtyDates - date)
         }
         persist()
+    }
+
+    /** v1.8.2:标记某天有未保存的草稿(DayEntryEditor 改任何字段时调用) */
+    fun markDirty(date: LocalDate) {
+        _state.update { current ->
+            if (date in current.dirtyDates) current
+            else current.copy(dirtyDates = current.dirtyDates + date)
+        }
+    }
+
+    /** v1.8.2:清除某天的草稿标记(切换到没改动的日期时清理) */
+    fun markClean(date: LocalDate) {
+        _state.update { current ->
+            if (date !in current.dirtyDates) current
+            else current.copy(dirtyDates = current.dirtyDates - date)
+        }
     }
 
     fun updateSettings(newSettings: Settings) {
