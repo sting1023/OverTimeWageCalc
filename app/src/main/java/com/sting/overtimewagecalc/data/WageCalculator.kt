@@ -16,9 +16,11 @@ object WageCalculator {
     fun totalForMonth(entries: List<DayEntry>, settings: Settings): Double =
         entries.sumOf { it.totalWage(settings) }
 
-    /** 过滤出某个月份的条目 */
+    /** 过滤出某个月份的条目(按日期升序) */
     fun entriesForMonth(entries: List<DayEntry>, yearMonth: YearMonth): List<DayEntry> =
-        entries.filter { it.date.month == yearMonth.month && it.date.year == yearMonth.year }
+        entries
+            .filter { it.date.month == yearMonth.month && it.date.year == yearMonth.year }
+            .sortedBy { it.date }
 
     /** 按日期索引 */
     fun indexByDate(entries: List<DayEntry>): Map<LocalDate, DayEntry> =

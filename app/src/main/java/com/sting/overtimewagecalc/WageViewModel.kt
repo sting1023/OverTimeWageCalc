@@ -61,6 +61,14 @@ class WageViewModel : ViewModel() {
         }
     }
 
+    /** 清空某天的数据(从 entries 里删掉这天的条目) */
+    fun clearEntry(date: LocalDate) {
+        _state.update { current ->
+            val newEntries = current.entries.filter { it.date != date }
+            current.copy(entries = newEntries)
+        }
+    }
+
     fun updateSettings(newSettings: Settings) {
         _state.update { current ->
             // 已有条目,如果倍数是按默认填的,跟着新设置更新

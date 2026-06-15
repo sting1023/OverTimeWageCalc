@@ -78,12 +78,14 @@ fun AppRoot() {
             onSelectDate = viewModel::selectDate,
             onCreateEntry = viewModel::createEntryFor,
             onUpdateEntry = viewModel::updateEntry,
+            onClearEntry = viewModel::clearEntry,
             onOpenSettings = { showSettings = true }
         )
     }
 }
 
-/** 主屏幕(v1.4:工资总额嵌进标题 + 日历固定 + 内容可滑动) */
+/** 主屏幕(v1.4:工资总额嵌进标题 + 日历固定 + 内容可滑动)
+ *  v1.6:加 onClearEntry 清空当天数据 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -93,6 +95,7 @@ fun HomeScreen(
     onSelectDate: (LocalDate) -> Unit,
     onCreateEntry: (LocalDate) -> DayEntry,
     onUpdateEntry: (DayEntry) -> Unit,
+    onClearEntry: (LocalDate) -> Unit,
     onOpenSettings: () -> Unit
 ) {
     Scaffold(
@@ -172,7 +175,8 @@ fun HomeScreen(
                         DayEntryEditor(
                             entry = entry,
                             settings = state.settings,
-                            onUpdate = onUpdateEntry
+                            onUpdate = onUpdateEntry,
+                            onClear = onClearEntry
                         )
                     }
                 }
@@ -353,40 +357,44 @@ fun CalendarDayCell(
     }
 }
 
+/** 每天输入编辑器(v1.6:加 保存/清空 按钮,改用草稿模式) */
 @Composable
 fun DayEntryEditor(
     entry: DayEntry,
     settings: Settings,
-    onUpdate: (DayEntry) -> Unit
+    onUpdate: (DayEntry) -> Unit,
+    onClear: (LocalDate) -> Unit
 ) {
-    // v1.3:日薪启用开关(默认关闭)
+    // 清空/重新打开日期时,递增 resetNonce 强制所有本地状态重新初始化
+    var resetNonce by rememberSaveable { mutableStateOf(0) }
+
     // v1.5:日薪/时薪默认值自动填入(用户可改,清空 = 用设置里的默认)
-    var dailyEnabled by rememberSaveable(entry.date) {
+    var dailyEnabled by rememberSaveable(entry.date, resetNonce) {
         mutableStateOf(entry.dailyWageEnabled)
     }
-    var dailyText by rememberSaveable(entry.date) {
+    var dailyText by rememberSaveable(entry.date, resetNonce) {
         // 优先显示已填的 dailyRate,否则填入默认日薪
         mutableStateOf(
             if (entry.dailyRate > 0) entry.dailyRate.toString()
             else settings.defaultDailyRate.toString()
         )
     }
-    var hourlyText by rememberSaveable(entry.date) {
+    var hourlyText by rememberSaveable(entry.date, resetNonce) {
         mutableStateOf(
             if (entry.hourlyRate > 0) entry.hourlyRate.toString()
             else settings.defaultHourlyRate.toString()
         )
     }
-    var multiplierText by rememberSaveable(entry.date) {
+    var multiplierText by rememberSaveable(entry.date, resetNonce) {
         mutableStateOf(entry.overtimeMultiplier.toString())
     }
-    var hoursText by rememberSaveable(entry.date) {
+    var hoursText by rememberSaveable(entry.date, resetNonce) {
         mutableStateOf(if (entry.overtimeHours > 0) entry.overtimeHours.toString() else "")
     }
-    var extraText by rememberSaveable(entry.date) {
+    var extraText by rememberSaveable(entry.date, resetNonce) {
         mutableStateOf(if (entry.extraOvertime > 0) entry.extraOvertime.toString() else "")
     }
-    var noteText by rememberSaveable(entry.date) {
+    var noteText by rememberSaveable(entry.date, resetNonce) {
         mutableStateOf(entry.extraNote)
     }
 
@@ -404,6 +412,8 @@ fun DayEntryEditor(
         onUpdate(updated)
     }
 
+    var showClearDialog by rememberSaveable { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp)
@@ -418,29 +428,20 @@ fun DayEntryEditor(
             ) {
                 Checkbox(
                     checked = dailyEnabled,
-                    onCheckedChange = {
-                        dailyEnabled = it
-                        commit()
-                    }
+                    onCheckedChange = { dailyEnabled = it }
                 )
                 Text(
                     "启用日薪",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.clickable {
-                        dailyEnabled = !dailyEnabled
-                        commit()
-                    }
+                    modifier = Modifier.clickable { dailyEnabled = !dailyEnabled }
                 )
             }
             if (dailyEnabled) {
                 NumberField(
                     label = "日薪(¥/天)",
                     value = dailyText,
-                    onValueChange = {
-                        dailyText = it
-                        commit()
-                    }
+                    onValueChange = { dailyText = it }
                 )
             } else {
                 Text(
@@ -455,10 +456,7 @@ fun DayEntryEditor(
             NumberField(
                 label = "加班时薪(¥/小时)",
                 value = hourlyText,
-                onValueChange = {
-                    hourlyText = it
-                    commit()
-                }
+                onValueChange = { hourlyText = it }
             )
 
             // 3. 倍数 + 小时(并排)
@@ -467,10 +465,7 @@ fun DayEntryEditor(
                     NumberField(
                         label = "加班倍数",
                         value = multiplierText,
-                        onValueChange = {
-                            multiplierText = it
-                            commit()
-                        }
+                        onValueChange = { multiplierText = it }
                     )
                 }
                 Spacer(Modifier.width(12.dp))
@@ -478,10 +473,7 @@ fun DayEntryEditor(
                     NumberField(
                         label = "加班小时数",
                         value = hoursText,
-                        onValueChange = {
-                            hoursText = it
-                            commit()
-                        }
+                        onValueChange = { hoursText = it }
                     )
                 }
             }
@@ -500,20 +492,14 @@ fun DayEntryEditor(
             NumberField(
                 label = "额外加班(¥,可选)",
                 value = extraText,
-                onValueChange = {
-                    extraText = it
-                    commit()
-                }
+                onValueChange = { extraText = it }
             )
             Spacer(Modifier.height(8.dp))
 
             // 5. 备注
             OutlinedTextField(
                 value = noteText,
-                onValueChange = {
-                    noteText = it
-                    commit()
-                },
+                onValueChange = { noteText = it },
                 label = { Text("加班备注(可选)") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
@@ -521,7 +507,7 @@ fun DayEntryEditor(
 
             Spacer(Modifier.height(12.dp))
 
-            // 当天小计(实时)
+            // 当天小计(实时,基于草稿)
             val liveDaily = if (dailyEnabled) (dailyText.toDoubleOrNull() ?: settings.defaultDailyRate) else 0.0
             val liveHourly = hourlyText.toDoubleOrNull() ?: settings.defaultHourlyRate
             val liveMult = multiplierText.toDoubleOrNull() ?: 1.0
@@ -533,14 +519,57 @@ fun DayEntryEditor(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("当天工资小计", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                Text("当天工资小计(未保存)", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                 Text(
                     "¥ %.2f".format(preview),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
             }
+
+            Spacer(Modifier.height(12.dp))
+
+            // v1.6:清空 + 保存 按钮
+            Row(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { showClearDialog = true },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("清空")
+                }
+                Spacer(Modifier.width(12.dp))
+                Button(
+                    onClick = { commit() },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("保存")
+                }
+            }
         }
+    }
+
+    // 清空确认对话框
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("清空当天数据") },
+            text = { Text("确定要清空 ${entry.date} 的所有工资数据吗?此操作不可撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearDialog = false
+                    onClear(entry.date)
+                    // 触发本地状态重置为默认值
+                    resetNonce++
+                }) {
+                    Text("确定清空", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 
