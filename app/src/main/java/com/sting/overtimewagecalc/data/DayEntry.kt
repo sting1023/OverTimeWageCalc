@@ -25,10 +25,12 @@ data class DayEntry(
     val extraOvertime: Double = 0.0,
     val extraNote: String = ""
 ) {
-    /** 是否"空"记录(没有任何输入) */
+    /** 是否"空"记录(用户没真正输入过任何东西)
+     *  v1.5:默认值已自动填入,hourlyRate=默认 不算"有数据"
+     *  只看用户实际输入:启用日薪、加班小时、额外加班、备注 */
     val isEmpty: Boolean
-        get() = !dailyWageEnabled && hourlyRate == 0.0 &&
-                overtimeHours == 0.0 && extraOvertime == 0.0 && extraNote.isBlank()
+        get() = !dailyWageEnabled && overtimeHours == 0.0 &&
+                extraOvertime == 0.0 && extraNote.isBlank()
 
     /** 该天的总工资 */
     fun totalWage(settings: Settings): Double {

@@ -203,14 +203,14 @@ fun CalendarSection(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
             // 月份切换
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onPrevMonth, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = onPrevMonth, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Default.ArrowBack, contentDescription = "上月", modifier = Modifier.size(18.dp))
                 }
                 Text(
@@ -218,23 +218,12 @@ fun CalendarSection(
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium
                 )
-                IconButton(onClick = onNextMonth, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = onNextMonth, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Default.ArrowForward, contentDescription = "下月", modifier = Modifier.size(18.dp))
                 }
             }
 
-            // 图例
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                LegendDot(color = Color(0xFFE3F2FD), label = "周末", size = 9.dp)
-                LegendDot(color = Color(0xFF4A148C), label = "有数据", isDot = true, size = 5.dp)
-            }
-
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(2.dp))
 
             // 星期表头
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -250,7 +239,7 @@ fun CalendarSection(
                 }
             }
 
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(1.dp))
 
             // 日历网格
             val firstDay = yearMonth.atDay(1)
@@ -370,17 +359,23 @@ fun DayEntryEditor(
     settings: Settings,
     onUpdate: (DayEntry) -> Unit
 ) {
-    val dateLabel = Settings.dateTypeLabel(entry.date)
-
     // v1.3:日薪启用开关(默认关闭)
+    // v1.5:日薪/时薪默认值自动填入(用户可改,清空 = 用设置里的默认)
     var dailyEnabled by rememberSaveable(entry.date) {
         mutableStateOf(entry.dailyWageEnabled)
     }
     var dailyText by rememberSaveable(entry.date) {
-        mutableStateOf(if (entry.dailyRate > 0) entry.dailyRate.toString() else "")
+        // 优先显示已填的 dailyRate,否则填入默认日薪
+        mutableStateOf(
+            if (entry.dailyRate > 0) entry.dailyRate.toString()
+            else settings.defaultDailyRate.toString()
+        )
     }
     var hourlyText by rememberSaveable(entry.date) {
-        mutableStateOf(if (entry.hourlyRate > 0) entry.hourlyRate.toString() else "")
+        mutableStateOf(
+            if (entry.hourlyRate > 0) entry.hourlyRate.toString()
+            else settings.defaultHourlyRate.toString()
+        )
     }
     var multiplierText by rememberSaveable(entry.date) {
         mutableStateOf(entry.overtimeMultiplier.toString())
@@ -398,8 +393,9 @@ fun DayEntryEditor(
     fun commit() {
         val updated = entry.copy(
             dailyWageEnabled = dailyEnabled,
-            dailyRate = dailyText.toDoubleOrNull() ?: 0.0,
-            hourlyRate = hourlyText.toDoubleOrNull() ?: 0.0,
+            // 用户清空 = 用设置里的默认;有内容 = 用用户填的
+            dailyRate = dailyText.toDoubleOrNull() ?: settings.defaultDailyRate,
+            hourlyRate = hourlyText.toDoubleOrNull() ?: settings.defaultHourlyRate,
             overtimeMultiplier = multiplierText.toDoubleOrNull() ?: 1.0,
             overtimeHours = hoursText.toDoubleOrNull() ?: 0.0,
             extraOvertime = extraText.toDoubleOrNull() ?: 0.0,
@@ -413,32 +409,7 @@ fun DayEntryEditor(
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // 日期标题 + 类型 badge
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    entry.date.toString(),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                if (dateLabel.isNotEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFFE3F2FD))
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Text(dateLabel, fontSize = 12.sp, color = Color(0xFF1565C0))
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-            Divider()
-            Spacer(Modifier.height(12.dp))
+            // v1.5:删日期标题行(日历已显示选中状态,这里多此一举)
 
             // 1. 日薪(checkbox 启用才显示输入框)
             Row(
@@ -466,17 +437,10 @@ fun DayEntryEditor(
                 NumberField(
                     label = "日薪(¥/天)",
                     value = dailyText,
-                    placeholder = "默认 ¥ ${"%.2f".format(settings.defaultDailyRate)}",
                     onValueChange = {
                         dailyText = it
                         commit()
                     }
-                )
-                Text(
-                    "留空 = 用默认日薪 ¥ ${"%.2f".format(settings.defaultDailyRate)}",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                    modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
                 )
             } else {
                 Text(
@@ -487,21 +451,14 @@ fun DayEntryEditor(
                 )
             }
 
-            // 2. 加班时薪(留空用默认)
+            // 2. 加班时薪(默认已填,清空用设置默认)
             NumberField(
                 label = "加班时薪(¥/小时)",
                 value = hourlyText,
-                placeholder = "默认 ¥ ${"%.2f".format(settings.defaultHourlyRate)}",
                 onValueChange = {
                     hourlyText = it
                     commit()
                 }
-            )
-            Text(
-                "留空 = 用默认加班时薪 ¥ ${"%.2f".format(settings.defaultHourlyRate)}",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
             )
 
             // 3. 倍数 + 小时(并排)
@@ -565,18 +522,12 @@ fun DayEntryEditor(
             Spacer(Modifier.height(12.dp))
 
             // 当天小计(实时)
-            val liveDaily = if (dailyEnabled) (dailyText.toDoubleOrNull() ?: 0.0) else 0.0
-            val liveHourly = hourlyText.toDoubleOrNull() ?: 0.0
+            val liveDaily = if (dailyEnabled) (dailyText.toDoubleOrNull() ?: settings.defaultDailyRate) else 0.0
+            val liveHourly = hourlyText.toDoubleOrNull() ?: settings.defaultHourlyRate
             val liveMult = multiplierText.toDoubleOrNull() ?: 1.0
             val liveHours = hoursText.toDoubleOrNull() ?: 0.0
             val liveExtra = extraText.toDoubleOrNull() ?: 0.0
-            val d = when {
-                !dailyEnabled -> 0.0
-                liveDaily > 0 -> liveDaily
-                else -> settings.defaultDailyRate
-            }
-            val h = if (liveHourly > 0) liveHourly else settings.defaultHourlyRate
-            val preview = d + h * liveMult * liveHours + liveExtra
+            val preview = liveDaily + liveHourly * liveMult * liveHours + liveExtra
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
