@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,13 +24,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sting.overtimewagecalc.data.DayEntry
+import com.sting.overtimewagecalc.data.RecentInputs
 import com.sting.overtimewagecalc.data.Settings
 import com.sting.overtimewagecalc.data.WageCalculator
 import java.time.LocalDate
@@ -102,22 +106,26 @@ fun HomeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    // 工资计算器,本月工资 ¥xxxx.xx
-                    Column {
+                    // v1.7:一行显示,工资计算器 + 本月工资
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             "工资计算器",
                             fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onPrimary
                         )
+                        Spacer(Modifier.width(12.dp))
                         Text(
                             "本月工资 ¥ %.2f".format(state.monthTotal),
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 },
-                navigationIcon = {
-                    // 左侧:设置(带"设置"文字)
+                // v1.7:设置按钮移到右边
+                actions = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -140,7 +148,8 @@ fun HomeScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
         }
@@ -208,22 +217,22 @@ fun CalendarSection(
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-            // 月份切换
+            // 月份切换(v1.7:整行 +30%)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onPrevMonth, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "上月", modifier = Modifier.size(18.dp))
+                IconButton(onClick = onPrevMonth, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "上月", modifier = Modifier.size(24.dp))
                 }
                 Text(
                     text = "${yearMonth.year} 年 ${yearMonth.monthValue} 月",
-                    fontSize = 15.sp,
+                    fontSize = 19.sp,
                     fontWeight = FontWeight.Medium
                 )
-                IconButton(onClick = onNextMonth, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.ArrowForward, contentDescription = "下月", modifier = Modifier.size(18.dp))
+                IconButton(onClick = onNextMonth, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.ArrowForward, contentDescription = "下月", modifier = Modifier.size(24.dp))
                 }
             }
 
@@ -309,14 +318,17 @@ fun CalendarDayCell(
     onClick: () -> Unit
 ) {
     val isWeekend = date.dayOfWeek.value == 6 || date.dayOfWeek.value == 7
+    // v1.7:今天用绿色标注
+    val isToday = date == LocalDate.now()
 
     val bgColor = when {
-        isSelected -> MaterialTheme.colorScheme.primary
-        isWeekend -> Color(0xFFE3F2FD)  // 浅蓝
+        isSelected -> Color(0xFF006064)  // 深青
+        isWeekend -> Color(0xFF90CAF9)   // 加深的蓝
         else -> Color.Transparent
     }
     val textColor = when {
-        isSelected -> MaterialTheme.colorScheme.onPrimary
+        isSelected -> Color.White
+        isToday -> Color(0xFF2E7D32)     // 今天的数字用绿色
         else -> MaterialTheme.colorScheme.onSurface
     }
 
@@ -347,7 +359,7 @@ fun CalendarDayCell(
                             .size(3.dp)
                             .clip(RoundedCornerShape(50))
                             .background(
-                                if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                if (isSelected) Color.White
                                 else Color(0xFF4A148C)  // 深紫
                             )
                     )
@@ -357,7 +369,8 @@ fun CalendarDayCell(
     }
 }
 
-/** 每天输入编辑器(v1.6:加 保存/清空 按钮,改用草稿模式) */
+/** 每天输入编辑器(v1.6:加 保存/清空 按钮,改用草稿模式)
+ *  v1.7:额外加班/备注 加最近 3 条历史选择 */
 @Composable
 fun DayEntryEditor(
     entry: DayEntry,
@@ -365,8 +378,18 @@ fun DayEntryEditor(
     onUpdate: (DayEntry) -> Unit,
     onClear: (LocalDate) -> Unit
 ) {
+    val context = LocalContext.current
+
     // 清空/重新打开日期时,递增 resetNonce 强制所有本地状态重新初始化
     var resetNonce by rememberSaveable { mutableStateOf(0) }
+
+    // v1.7:最近输入历史(自动跟随 resetNonce 重新读取,比如清空后)
+    var extraHistory by remember(resetNonce) {
+        mutableStateOf(RecentInputs.getExtraOvertime(context))
+    }
+    var noteHistory by remember(resetNonce) {
+        mutableStateOf(RecentInputs.getExtraNote(context))
+    }
 
     // v1.5:日薪/时薪默认值自动填入(用户可改,清空 = 用设置里的默认)
     var dailyEnabled by rememberSaveable(entry.date, resetNonce) {
@@ -410,9 +433,21 @@ fun DayEntryEditor(
             extraNote = noteText
         )
         onUpdate(updated)
+        // v1.7:保存到最近输入历史
+        if (extraText.isNotBlank()) {
+            RecentInputs.addExtraOvertime(context, extraText)
+            extraHistory = RecentInputs.getExtraOvertime(context)
+        }
+        if (noteText.isNotBlank()) {
+            RecentInputs.addExtraNote(context, noteText)
+            noteHistory = RecentInputs.getExtraNote(context)
+        }
     }
 
     var showClearDialog by rememberSaveable { mutableStateOf(false) }
+    // v1.7:历史下拉菜单控制
+    var showExtraMenu by rememberSaveable { mutableStateOf(false) }
+    var showNoteMenu by rememberSaveable { mutableStateOf(false) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -488,22 +523,86 @@ fun DayEntryEditor(
             Divider()
             Spacer(Modifier.height(8.dp))
 
-            // 4. 额外加班(金额)
-            NumberField(
-                label = "额外加班(¥,可选)",
-                value = extraText,
-                onValueChange = { extraText = it }
-            )
-            Spacer(Modifier.height(8.dp))
+            // 4. 额外加班(v1.7:带历史选择)
+            Box(modifier = Modifier.fillMaxWidth()) {
+                NumberField(
+                    label = "额外加班(¥,可选)",
+                    value = extraText,
+                    onValueChange = { extraText = it },
+                    trailingIcon = if (extraHistory.isNotEmpty()) {
+                        {
+                            IconButton(onClick = { showExtraMenu = true }) {
+                                Icon(
+                                    Icons.Default.History,
+                                    contentDescription = "最近填写",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    } else null
+                )
+                DropdownMenu(
+                    expanded = showExtraMenu,
+                    onDismissRequest = { showExtraMenu = false }
+                ) {
+                    extraHistory.forEach { value ->
+                        DropdownMenuItem(
+                            text = { Text("¥ $value") },
+                            onClick = {
+                                extraText = value
+                                showExtraMenu = false
+                                commit()  // 自动保存 + 记录历史
+                            }
+                        )
+                    }
+                }
+            }
+            if (extraHistory.isNotEmpty()) {
+                Text(
+                    "点击右侧时钟图标可快速选择最近 3 条金额",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                    modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 8.dp)
+                )
+            }
+            Spacer(Modifier.height(4.dp))
 
-            // 5. 备注
-            OutlinedTextField(
-                value = noteText,
-                onValueChange = { noteText = it },
-                label = { Text("加班备注(可选)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
+            // 5. 备注(v1.7:带历史选择)
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = noteText,
+                    onValueChange = { noteText = it },
+                    label = { Text("加班备注(可选)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    trailingIcon = if (noteHistory.isNotEmpty()) {
+                        {
+                            IconButton(onClick = { showNoteMenu = true }) {
+                                Icon(
+                                    Icons.Default.History,
+                                    contentDescription = "最近填写",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    } else null
+                )
+                DropdownMenu(
+                    expanded = showNoteMenu,
+                    onDismissRequest = { showNoteMenu = false }
+                ) {
+                    noteHistory.forEach { value ->
+                        DropdownMenuItem(
+                            text = { Text(value) },
+                            onClick = {
+                                noteText = value
+                                showNoteMenu = false
+                                commit()  // 自动保存 + 记录历史
+                            }
+                        )
+                    }
+                }
+            }
 
             Spacer(Modifier.height(12.dp))
 
@@ -579,7 +678,8 @@ fun NumberField(
     label: String,
     value: String,
     placeholder: String? = null,
-    onValueChange: (String) -> Unit
+    onValueChange: (String) -> Unit,
+    trailingIcon: @Composable (() -> Unit)? = null
 ) {
     OutlinedTextField(
         value = value,
@@ -590,7 +690,8 @@ fun NumberField(
         } else null,
         modifier = Modifier.fillMaxWidth(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-        singleLine = true
+        singleLine = true,
+        trailingIcon = trailingIcon
     )
 }
 
