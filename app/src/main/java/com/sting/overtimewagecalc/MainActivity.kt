@@ -606,7 +606,7 @@ fun DayEntryEditor(
 
             Spacer(Modifier.height(12.dp))
 
-            // 当天小计(实时,基于草稿)
+            // 当天小计(实时,基于草稿;v1.8:脏了才显示红色"未保存")
             val liveDaily = if (dailyEnabled) (dailyText.toDoubleOrNull() ?: settings.defaultDailyRate) else 0.0
             val liveHourly = hourlyText.toDoubleOrNull() ?: settings.defaultHourlyRate
             val liveMult = multiplierText.toDoubleOrNull() ?: 1.0
@@ -614,11 +614,31 @@ fun DayEntryEditor(
             val liveExtra = extraText.toDoubleOrNull() ?: 0.0
             val preview = liveDaily + liveHourly * liveMult * liveHours + liveExtra
 
+            // 比较草稿 vs 已保存,任何一个字段不同就算脏
+            val isDirty = dailyEnabled != entry.dailyWageEnabled ||
+                liveDaily != entry.dailyRate ||
+                liveHourly != entry.hourlyRate ||
+                liveMult != entry.overtimeMultiplier ||
+                liveHours != entry.overtimeHours ||
+                liveExtra != entry.extraOvertime ||
+                noteText != entry.extraNote
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("当天工资小计(未保存)", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("当天工资小计", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                    if (isDirty) {
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "(未保存)",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
                 Text(
                     "¥ %.2f".format(preview),
                     fontWeight = FontWeight.Bold,
