@@ -13,7 +13,11 @@ import kotlinx.coroutines.flow.update
 import java.time.LocalDate
 import java.time.YearMonth
 
-/** UI 状态(v1.8.2 — 加 dirtyDates 跟踪哪些日期有未保存的草稿) */
+/**
+ * UI 状态(v2.0)
+ *  - entries + settings: 已保存到磁盘的真实数据
+ *  - dirtyDates: 哪些日期有未保存的草稿(由 ViewModel.markDirty/markClean 维护)
+ */
 data class WageUiState(
     val yearMonth: YearMonth = YearMonth.now(),
     val selectedDate: LocalDate? = LocalDate.now(),
@@ -31,7 +35,12 @@ data class WageUiState(
         get() = WageCalculator.totalForMonth(monthEntries, settings)
 }
 
-/** ViewModel(v1.8 — 持久化到 SharedPreferences,升级不丢数据) */
+/**
+ * ViewModel(v2.0)
+ *  - 持久化:Storage.save 在每次 updateEntry/clearEntry/updateSettings 后调
+ *  - 草稿追踪:dirtyDates 显式标记,onValueChange 调 markDirty
+ *  - 草稿合成:commitDraft 把外部 DraftFields + Settings 合成 DayEntry 后调 updateEntry
+ */
 class WageViewModel(application: Application) : AndroidViewModel(application) {
 
     private val context get() = getApplication<Application>()
@@ -40,7 +49,6 @@ class WageViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<WageUiState> = _state.asStateFlow()
 
     init {
-        // 从磁盘恢复(卸载重装没数据,这里 load 返回 null 用默认)
         Storage.load(context)?.let { loaded ->
             _state.update {
                 it.copy(entries = loaded.entries, settings = loaded.settings)
@@ -48,7 +56,6 @@ class WageViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** 每次改 entries / settings 都写盘 */
     private fun persist() {
         val current = _state.value
         Storage.save(context, current.entries, current.settings)
@@ -56,7 +63,6 @@ class WageViewModel(application: Application) : AndroidViewModel(application) {
 
     fun prevMonth() {
         _state.update { it.copy(yearMonth = it.yearMonth.minusMonths(1)) }
-        // 月份切换是 UI 状态,不入 entries/settings,不存
     }
 
     fun nextMonth() {
@@ -67,7 +73,7 @@ class WageViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(selectedDate = date) }
     }
 
-    /** 新建某天的条目,自动填默认倍数(周末/工作日) */
+    /** 新建某天的空白条目(自动填默认倍数:周末=weekendMultiplier,工作日=1.0) */
     fun createEntryFor(date: LocalDate): DayEntry {
         val defaultMultiplier = Settings.defaultMultiplierFor(
             date, _state.value.settings.weekendMultiplier
@@ -75,6 +81,7 @@ class WageViewModel(application: Application) : AndroidViewModel(application) {
         return DayEntry(date = date, overtimeMultiplier = defaultMultiplier)
     }
 
+    /** v2.0:核心 commit 函数 —— 接受 DayEntry 写入并清 dirty 标 */
     fun updateEntry(updated: DayEntry) {
         _state.update { current ->
             val newEntries = current.entries.filter { it.date != updated.date } + updated
@@ -83,7 +90,7 @@ class WageViewModel(application: Application) : AndroidViewModel(application) {
         persist()
     }
 
-    /** 清空某天的数据(从 entries 里删掉这天的条目) */
+    /** 清空某天数据 */
     fun clearEntry(date: LocalDate) {
         _state.update { current ->
             val newEntries = current.entries.filter { it.date != date }
@@ -92,7 +99,7 @@ class WageViewModel(application: Application) : AndroidViewModel(application) {
         persist()
     }
 
-    /** v1.8.2:标记某天有未保存的草稿(DayEntryEditor 改任何字段时调用) */
+    /** v2.0:批量清 dirty(用于"放弃修改"和"全部保存"弹框流程) */
     fun markDirty(date: LocalDate) {
         _state.update { current ->
             if (date in current.dirtyDates) current
@@ -100,7 +107,6 @@ class WageViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** v1.8.2:清除某天的草稿标记(切换到没改动的日期时清理) */
     fun markClean(date: LocalDate) {
         _state.update { current ->
             if (date !in current.dirtyDates) current
@@ -108,9 +114,16 @@ class WageViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** v2.0:批量清多个 dirtyDates(用于退出未保存弹框) */
+    fun markManyClean(dates: Set<LocalDate>) {
+        _state.update { current ->
+            current.copy(dirtyDates = current.dirtyDates - dates)
+        }
+    }
+
+    /** 设置变更:已有条目如果倍数是按默认填的,跟着新设置更新 */
     fun updateSettings(newSettings: Settings) {
         _state.update { current ->
-            // 已有条目,如果倍数是按默认填的,跟着新设置更新
             val updatedEntries = current.entries.map { entry ->
                 val oldDefault = Settings.defaultMultiplierFor(
                     entry.date, current.settings.weekendMultiplier

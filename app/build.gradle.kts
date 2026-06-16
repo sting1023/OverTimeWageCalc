@@ -11,8 +11,8 @@ android {
         applicationId = "com.sting.overtimewagecalc"
         minSdk = 24
         targetSdk = 34
-        versionCode = 10
-        versionName = "1.8.2"
+        versionCode = 11
+        versionName = "2.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -82,6 +82,10 @@ dependencies {
 
     implementation("androidx.datastore:datastore-preferences:1.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // v2.0 新增:Excel 导出(Apache POI)
+    implementation("org.apache.poi:poi:5.2.3")
+    implementation("org.apache.poi:poi-ooxml:5.2.3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

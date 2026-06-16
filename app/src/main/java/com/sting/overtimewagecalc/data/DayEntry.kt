@@ -3,7 +3,7 @@ package com.sting.overtimewagecalc.data
 import java.time.LocalDate
 
 /**
- * 某一天的工资条目(v1.3 — 日薪加启用开关)
+ * 某一天的工资条目(v2.0 — 备注改名:extraNote → dayNote)
  *
  * 每天工资 = 日薪(若启用) + (时薪 × 倍数 × 加班小时) + 额外加班金额
  *
@@ -13,7 +13,7 @@ import java.time.LocalDate
  * - hourlyRate = 0:用 settings.defaultHourlyRate
  * - overtimeMultiplier:倍数,默认 1.0;周末自动填 weekendMultiplier,工作日为 1.0
  * - extraOvertime:直接金额的额外加班
- * - extraNote:加班备注
+ * - dayNote:备注(对当天所有工资的说明,不只限加班)— v2.0 改名
  */
 data class DayEntry(
     val date: LocalDate,
@@ -23,14 +23,12 @@ data class DayEntry(
     val overtimeMultiplier: Double = 1.0,
     val overtimeHours: Double = 0.0,
     val extraOvertime: Double = 0.0,
-    val extraNote: String = ""
+    val dayNote: String = ""   // v2.0 改:extraNote → dayNote
 ) {
-    /** 是否"空"记录(用户没真正输入过任何东西)
-     *  v1.5:默认值已自动填入,hourlyRate=默认 不算"有数据"
-     *  只看用户实际输入:启用日薪、加班小时、额外加班、备注 */
+    /** 是否"空"记录(用户没真正输入过任何东西) */
     val isEmpty: Boolean
         get() = !dailyWageEnabled && overtimeHours == 0.0 &&
-                extraOvertime == 0.0 && extraNote.isBlank()
+                extraOvertime == 0.0 && dayNote.isBlank()
 
     /** 该天的总工资 */
     fun totalWage(settings: Settings): Double {
