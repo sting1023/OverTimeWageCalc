@@ -35,7 +35,7 @@ object Storage {
             obj.put("overtimeMultiplier", entry.overtimeMultiplier)
             obj.put("overtimeHours", entry.overtimeHours)
             obj.put("extraOvertime", entry.extraOvertime)
-            obj.put("extraNote", entry.extraNote)
+            obj.put("dayNote", entry.dayNote)   // v2.0 改
             arr.put(obj)
         }
         root.put("entries", arr)
@@ -67,7 +67,7 @@ object Storage {
                     overtimeMultiplier = o.optDouble("overtimeMultiplier", 1.0),
                     overtimeHours = o.optDouble("overtimeHours", 0.0),
                     extraOvertime = o.optDouble("extraOvertime", 0.0),
-                    extraNote = o.optString("extraNote", "")
+                    dayNote = o.optString("dayNote", "")  // v2.0 改
                 )
             }
 
