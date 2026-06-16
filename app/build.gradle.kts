@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.sting.overtimewagecalc"
-        minSdk = 24
+        minSdk = 26  // v2.0: 提升到 26(Android 8),因 POI 5.x 的 log4j 需要 MethodHandle.invoke
         targetSdk = 34
         versionCode = 11
         versionName = "2.0"
